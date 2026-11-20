@@ -2,8 +2,10 @@ package io.github.yuushilabs.sokutei.camera
 
 import android.content.Context
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -17,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +28,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.io.File
+import java.util.concurrent.Executors
+import kotlin.math.ceil
+import kotlin.math.max
 
 /**
  * CameraX 初期化の共通処理。
@@ -88,6 +94,80 @@ fun CameraPreview(modifier: Modifier = Modifier) {
             }.onFailure { error = "カメラを開始できませんでした" }
         }
         onDispose { }
+    }
+    Box(modifier = modifier) {
+        AndroidView(factory = { previewView }, modifier = Modifier.matchParentSize())
+        error?.let { CameraErrorRetry(it, { error = null; attempt++ }, Modifier.matchParentSize()) }
+    }
+}
+
+/** フレームの輝度（Y平面）を最大幅 [MAX_ANALYSIS_WIDTH] に間引いて取り出す。 */
+private fun extractGray(image: ImageProxy): Triple<IntArray, Int, Int> {
+    val plane = image.planes[0]
+    val rowStride = plane.rowStride
+    val pixelStride = plane.pixelStride
+    val srcW = image.width
+    val srcH = image.height
+    val step = max(1, ceil(srcW.toDouble() / MAX_ANALYSIS_WIDTH).toInt())
+    val outW = (srcW + step - 1) / step
+    val outH = (srcH + step - 1) / step
+    val bytes = ByteArray(plane.buffer.remaining())
+    plane.buffer.get(bytes)
+    val out = IntArray(outW * outH)
+    for (oy in 0 until outH) {
+        val sy = oy * step
+        for (ox in 0 until outW) {
+            val sx = ox * step
+            out[oy * outW + ox] = bytes[sy * rowStride + sx * pixelStride].toInt() and 0xFF
+        }
+    }
+    return Triple(out, outW, outH)
+}
+
+private const val MAX_ANALYSIS_WIDTH = 320
+
+/**
+ * 解析付きプレビュー。フレームの輝度と寸法、表示に合わせて正立させるための
+ * 回転角を [onFrame] へ渡す（解析専用スレッドで呼ばれる）。
+ * プレビューはフィット表示にし、呼び出し側が重心マーカーを正確に重ねられるようにする。
+ */
+@Composable
+fun CameraAnalysisPreview(
+    modifier: Modifier = Modifier,
+    onFrame: (gray: IntArray, width: Int, height: Int, rotationDegrees: Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val previewView = remember {
+        PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER }
+    }
+    var attempt by remember { mutableIntStateOf(0) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val provider = rememberCameraProvider(attempt) { error = it }
+    val frameHandler by rememberUpdatedState(onFrame)
+    DisposableEffect(provider, lifecycleOwner) {
+        val executor = Executors.newSingleThreadExecutor()
+        if (provider != null) {
+            runCatching {
+                val preview = Preview.Builder().build().also {
+                    it.surfaceProvider = previewView.surfaceProvider
+                }
+                val analysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                analysis.setAnalyzer(executor) { image ->
+                    image.use {
+                        val (gray, w, h) = extractGray(it)
+                        frameHandler(gray, w, h, it.imageInfo.rotationDegrees)
+                    }
+                }
+                provider.unbindAll()
+                provider.bindToLifecycle(
+                    lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis,
+                )
+            }.onFailure { error = "カメラを開始できませんでした" }
+        }
+        onDispose { executor.shutdown() }
     }
     Box(modifier = modifier) {
         AndroidView(factory = { previewView }, modifier = Modifier.matchParentSize())
