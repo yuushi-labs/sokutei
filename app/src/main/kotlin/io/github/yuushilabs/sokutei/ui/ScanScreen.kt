@@ -28,6 +28,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.yuushilabs.sokutei.camera.CameraPreview
 import io.github.yuushilabs.sokutei.core.LengthFormat
 import io.github.yuushilabs.sokutei.core.TiltMath
@@ -38,17 +41,55 @@ import kotlin.math.abs
 @Composable
 fun ScanScreen(history: HistoryViewModel) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val tracker = remember { MotionTracker(context) }
     DisposableEffect(tracker) {
         tracker.startListening()
         onDispose { tracker.stopListening() }
     }
 
+    // 測定状態はタブを切り替えても失われないよう、この画面で保持する
+    var moveMeasuring by remember { mutableStateOf(false) }
+    var moveFinished by remember { mutableStateOf<Double?>(null) }
+    var moveNotice by remember { mutableStateOf<String?>(null) }
+
+    fun cancelMoveMeasurement(notice: String) {
+        if (moveMeasuring) {
+            tracker.cancelMeasurement()
+            moveMeasuring = false
+            moveFinished = null
+            moveNotice = notice
+        }
+    }
+
+    // バックグラウンドではセンサーイベントが欠落し、欠落時間をまたいだ積分は
+    // 不正な結果になるため、停止時に進行中の測定は破棄する
+    DisposableEffect(lifecycleOwner, tracker) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                cancelMoveMeasurement("バックグラウンドに移ったため、測定を中止しました")
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     var tab by remember { mutableStateOf(0) }
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("上下スキャン") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("傾けて測る") })
+            Tab(
+                selected = tab == 0,
+                onClick = { tab = 0 },
+                text = { Text("上下スキャン") },
+            )
+            Tab(
+                selected = tab == 1,
+                onClick = {
+                    cancelMoveMeasurement("タブを切り替えたため、測定を中止しました")
+                    tab = 1
+                },
+                text = { Text("傾けて測る") },
+            )
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             CameraPermissionGate {
@@ -64,7 +105,24 @@ fun ScanScreen(history: HistoryViewModel) {
             )
         }
         when (tab) {
-            0 -> MovePanel(tracker, history)
+            0 -> MovePanel(
+                tracker = tracker,
+                history = history,
+                measuring = moveMeasuring,
+                finished = moveFinished,
+                notice = moveNotice,
+                onStart = {
+                    moveFinished = null
+                    moveNotice = null
+                    tracker.startMeasurement()
+                    moveMeasuring = true
+                },
+                onStop = {
+                    moveFinished = tracker.stopMeasurement()
+                    moveMeasuring = false
+                },
+                onSaved = { moveFinished = null },
+            )
             else -> TiltPanel(tracker, history)
         }
     }
@@ -83,11 +141,18 @@ private fun Crosshair() {
 }
 
 @Composable
-private fun MovePanel(tracker: MotionTracker, history: HistoryViewModel) {
+private fun MovePanel(
+    tracker: MotionTracker,
+    history: HistoryViewModel,
+    measuring: Boolean,
+    finished: Double?,
+    notice: String?,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    onSaved: () -> Unit,
+) {
     val displacement by tracker.displacementMeters.collectAsState()
     val still by tracker.still.collectAsState()
-    var measuring by remember { mutableStateOf(false) }
-    var finished by remember { mutableStateOf<Double?>(null) }
 
     Column(
         Modifier.padding(16.dp),
@@ -97,6 +162,7 @@ private fun MovePanel(tracker: MotionTracker, history: HistoryViewModel) {
             "高さ（上下の移動量）: ${LengthFormat.format(displacement * 1000)}",
             style = MaterialTheme.typography.headlineSmall,
         )
+        notice?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Text(
             when {
                 measuring && still -> "静止中（このまま保つと精度が上がります）"
@@ -107,27 +173,20 @@ private fun MovePanel(tracker: MotionTracker, history: HistoryViewModel) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!measuring) {
-                Button(onClick = {
-                    finished = null
-                    tracker.startMeasurement()
-                    measuring = true
-                }) { Text("測定開始") }
+                Button(onClick = onStart) { Text("測定開始") }
             } else {
-                Button(onClick = {
-                    finished = tracker.stopMeasurement()
-                    measuring = false
-                }) { Text("停止") }
+                Button(onClick = onStop) { Text("停止") }
             }
             val result = finished
             if (result != null && abs(result) > 0.001) {
                 OutlinedButton(onClick = {
                     history.add("上下スキャン", LengthFormat.format(result * 1000), "加速度二重積分（ZUPT＋ドリフト補正）")
-                    finished = null
+                    onSaved()
                 }) { Text("履歴に保存") }
             }
         }
         Text(
-            "※ 加速度センサの二重積分なので誤差は大きめです（目安 ±10〜20%）。速く動かすほど悪化します。",
+            "※ 加速度センサの二重積分なので誤差は大きめです（大きさは実機未検証のため分かりません）。速く動かすほど悪化します。",
             style = MaterialTheme.typography.bodySmall,
         )
     }

@@ -64,6 +64,13 @@ class MotionTracker(context: Context) : SensorEventListener {
         return _displacementMeters.value
     }
 
+    /** 進行中の測定を破棄する。バックグラウンド移行などでサンプルが欠落した場合に使う。 */
+    fun cancelMeasurement() {
+        measuring = false
+        estimator.reset()
+        _displacementMeters.value = 0.0
+    }
+
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
