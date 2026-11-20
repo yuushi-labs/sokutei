@@ -36,4 +36,21 @@ class TiltMathTest {
             TiltMath.heightMeters(1.5, -10.0, -20.0)
         }
     }
+
+    @Test
+    fun `下端が -90 度以下なら例外`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TiltMath.heightMeters(1.5, -90.0, 30.0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TiltMath.distanceMeters(1.5, -95.0)
+        }
+    }
+
+    @Test
+    fun `上端が 90 度以上なら例外`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TiltMath.heightMeters(1.5, -45.0, 90.0)
+        }
+    }
 }

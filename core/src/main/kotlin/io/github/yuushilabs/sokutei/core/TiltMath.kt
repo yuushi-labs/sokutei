@@ -15,6 +15,8 @@ object TiltMath {
     fun distanceMeters(cameraHeightM: Double, bottomAngleDeg: Double): Double {
         require(cameraHeightM > 0) { "cameraHeightM must be positive" }
         require(bottomAngleDeg < 0) { "bottomAngleDeg must be negative (looking down)" }
+        // tan の特異点（-90°）に近づくと距離が発散するため、直下は測定不能として弾く
+        require(bottomAngleDeg > -90) { "bottomAngleDeg must be greater than -90" }
         val b = Math.toRadians(bottomAngleDeg)
         return -cameraHeightM / tan(b)
     }
@@ -22,6 +24,8 @@ object TiltMath {
     /** 物体の高さ（メートル）。 */
     fun heightMeters(cameraHeightM: Double, bottomAngleDeg: Double, topAngleDeg: Double): Double {
         require(topAngleDeg > bottomAngleDeg) { "topAngleDeg must be greater than bottomAngleDeg" }
+        // tan の特異点（+90°）では高さが発散するため、真上は測定不能として弾く
+        require(topAngleDeg < 90) { "topAngleDeg must be less than 90" }
         val d = distanceMeters(cameraHeightM, bottomAngleDeg)
         val t = Math.toRadians(topAngleDeg)
         return cameraHeightM + d * tan(t)

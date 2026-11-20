@@ -15,11 +15,17 @@ data class AccelSample(val tMillis: Long, val aVertical: Double)
  * 2. 線形ドリフト補正: 静止→静止で挟まれた移動区間では、積分した速度が
  *    区間末尾で 0 になるよう、速度に線形ランプ状の誤差が乗ったと仮定して差し引く。
  *
+ * 静止の判定は加速度だけでは行わない。等速移動中は加速度がほぼ 0 になるため、
+ * 加速度だけで判定すると移動の途中で区間が分断され、変位が消えてしまう。
+ * そこで、前後を移動に挟まれた静止候補区間については、補正なしの積分速度が
+ * 十分小さい場合にだけ静止として扱う（[DEFAULT_STILL_VELOCITY_THRESHOLD]）。
+ *
  * それでも絶対精度は出ない（目安は SPEC.md / README の精度に関する注意を参照）。
  */
 class VerticalDisplacementEstimator(
     private val stillAccelThreshold: Double = DEFAULT_STILL_THRESHOLD,
     private val stillWindowMillis: Long = DEFAULT_STILL_WINDOW_MS,
+    private val stillVelocityThreshold: Double = DEFAULT_STILL_VELOCITY_THRESHOLD,
 ) {
     private val samples = mutableListOf<AccelSample>()
 
@@ -48,19 +54,22 @@ class VerticalDisplacementEstimator(
     }
 
     fun displacementMeters(): Double =
-        estimateDisplacement(samples, stillAccelThreshold, stillWindowMillis)
+        estimateDisplacement(samples, stillAccelThreshold, stillWindowMillis, stillVelocityThreshold)
 
     companion object {
         const val DEFAULT_STILL_THRESHOLD = 0.35 // m/s^2
         const val DEFAULT_STILL_WINDOW_MS = 250L
+        const val DEFAULT_STILL_VELOCITY_THRESHOLD = 0.12 // m/s
 
         fun estimateDisplacement(
             samples: List<AccelSample>,
             stillAccelThreshold: Double = DEFAULT_STILL_THRESHOLD,
             stillWindowMillis: Long = DEFAULT_STILL_WINDOW_MS,
+            stillVelocityThreshold: Double = DEFAULT_STILL_VELOCITY_THRESHOLD,
         ): Double {
             if (samples.size < 2) return 0.0
-            val still = stillFlags(samples, stillAccelThreshold, stillWindowMillis)
+            val accelStill = stillFlags(samples, stillAccelThreshold, stillWindowMillis)
+            val still = applyVelocityVeto(samples, accelStill, stillVelocityThreshold)
             var total = 0.0
             var i = 0
             while (i < samples.size) {
@@ -104,6 +113,57 @@ class VerticalDisplacementEstimator(
                 flags[i] = violations == 0
             }
             return flags
+        }
+
+        /** 補正なしの積分速度。先頭サンプルの速度は 0 とする。 */
+        private fun rawVelocities(samples: List<AccelSample>): DoubleArray {
+            val v = DoubleArray(samples.size)
+            var cur = 0.0
+            for (k in 1 until samples.size) {
+                val dt = (samples[k].tMillis - samples[k - 1].tMillis) / 1000.0
+                if (dt > 0) {
+                    cur += (samples[k].aVertical + samples[k - 1].aVertical) / 2.0 * dt
+                }
+                v[k] = cur
+            }
+            return v
+        }
+
+        /**
+         * 等速移動の誤分割を防ぐための速度条件。
+         *
+         * 前後を移動に挟まれた静止候補区間でも、積分速度が区間を通して
+         * [velocityThreshold] を上回っているなら、それは静止ではなく等速移動の
+         * 一部とみなして静止扱いを取り消す。先頭と末尾の静止区間は ZUPT の
+         * アンカーとして常に残す（利用者は静止した状態で開始・停止するため）。
+         */
+        private fun applyVelocityVeto(
+            samples: List<AccelSample>,
+            accelStill: BooleanArray,
+            velocityThreshold: Double,
+        ): BooleanArray {
+            val n = samples.size
+            val still = accelStill.copyOf()
+            val velocity = rawVelocities(samples)
+            var i = 0
+            while (i < n) {
+                if (!accelStill[i]) {
+                    i++
+                    continue
+                }
+                var end = i
+                while (end < n && accelStill[end]) end++
+                val interior = i > 0 && end < n
+                if (interior) {
+                    var minAbsV = Double.MAX_VALUE
+                    for (k in i until end) minAbsV = minOf(minAbsV, abs(velocity[k]))
+                    if (minAbsV > velocityThreshold) {
+                        for (k in i until end) still[k] = false
+                    }
+                }
+                i = end
+            }
+            return still
         }
 
         /** 静止（速度0）から静止（速度0）までの1区間を台形積分し、速度ドリフトを線形補正する。 */

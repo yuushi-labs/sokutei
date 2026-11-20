@@ -39,6 +39,18 @@ class VerticalDisplacementTest {
     }
 
     @Test
+    fun `等速区間を含む台形プロファイルでも変位が消えない`() {
+        // 静止 → +1 m/s^2 で 0.5 秒（速度 0.5 m/s）→ 等速 1 秒 → -1 m/s^2 で 0.5 秒 → 静止
+        // 真の変位は 0.125 + 0.5 + 0.125 = 0.75 m。
+        // 等速区間を静止と誤判定すると区間が分断され、変位がほぼ 0 になってしまう。
+        val samples = synthesize(
+            listOf(0.5 to 0.0, 0.5 to 1.0, 1.0 to 0.0, 0.5 to -1.0, 0.5 to 0.0),
+        )
+        val est = VerticalDisplacementEstimator.estimateDisplacement(samples)
+        assertEquals(0.75, est, 0.05, "estimated=$est")
+    }
+
+    @Test
     fun `下方向の移動は負になる`() {
         val samples = synthesize(
             listOf(0.5 to 0.0, 0.5 to -4.0, 0.5 to 4.0, 0.5 to 0.0),
