@@ -48,6 +48,9 @@ fun CountScreen(history: HistoryViewModel) {
     var autoCentroids by remember { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
     var manualPoints by remember { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
     var computing by remember { mutableStateOf(false) }
+    // 自動計算の結果が「現在の画像と設定」に対応して確定済みかどうか。
+    // 設定変更や画像の差し替えのたびに false にし、再計算が終わるまで履歴保存を止める
+    var autoResultValid by remember { mutableStateOf(false) }
 
     val bmp = bitmap
 
@@ -55,6 +58,7 @@ fun CountScreen(history: HistoryViewModel) {
         val source = bmp
         if (source == null || manualMode) {
             autoCentroids = emptyList()
+            computing = false
             return@LaunchedEffect
         }
         computing = true
@@ -75,6 +79,7 @@ fun CountScreen(history: HistoryViewModel) {
             }
         }
         autoCentroids = result
+        autoResultValid = true
         computing = false
     }
 
@@ -89,6 +94,7 @@ fun CountScreen(history: HistoryViewModel) {
             bitmap = loaded
             manualPoints = emptyList()
             autoCentroids = emptyList()
+            autoResultValid = false
         }
 
         if (bmp != null) {
@@ -122,12 +128,12 @@ fun CountScreen(history: HistoryViewModel) {
             if (!manualMode) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("明るい物を数える（反転）")
-                    Switch(checked = invert, onCheckedChange = { invert = it })
+                    Switch(checked = invert, onCheckedChange = { invert = it; autoResultValid = false })
                 }
                 Text("小さいノイズを除外する下限: 全体の %.2f%%".format(minAreaPercent))
                 Slider(
                     value = minAreaPercent,
-                    onValueChange = { minAreaPercent = it },
+                    onValueChange = { minAreaPercent = it; autoResultValid = false },
                     valueRange = 0.01f..1.0f,
                 )
                 Text(
@@ -141,13 +147,16 @@ fun CountScreen(history: HistoryViewModel) {
                 }
             }
 
-            Button(onClick = {
-                history.add(
-                    if (manualMode) "個数（手動）" else "個数（自動）",
-                    "$count 個",
-                    if (manualMode) "タップカウント" else "大津二値化＋連結成分",
-                )
-            }) { Text("履歴に保存") }
+            Button(
+                enabled = manualMode || autoResultValid,
+                onClick = {
+                    history.add(
+                        if (manualMode) "個数（手動）" else "個数（自動）",
+                        "$count 個",
+                        if (manualMode) "タップカウント" else "大津二値化＋連結成分",
+                    )
+                },
+            ) { Text("履歴に保存") }
         }
     }
 }
