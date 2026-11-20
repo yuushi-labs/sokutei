@@ -81,6 +81,21 @@ class LineCrossingCounterTest {
     }
 
     @Test
+    fun `追跡だけを破棄すると幻の横切りを数えず累積は残る`() {
+        val c = counter()
+        // まず1回横切らせて累積を作る
+        feed(c, listOf(0.5 to 0.38), listOf(0.5 to 0.46), listOf(0.5 to 0.54))
+        assertEquals(1, c.downCount)
+        // 別の物が線の上に現れた状態で追跡を破棄する（設定変更を想定）。
+        // 破棄後にその物が線の下へ移っても、横切りとしては数えない
+        feed(c, listOf(0.5 to 0.54, 0.2 to 0.44))
+        c.clearTracks()
+        feed(c, listOf(0.2 to 0.54))
+        assertEquals(1, c.downCount)
+        assertEquals(0, c.upCount)
+    }
+
+    @Test
     fun `リセットで回数と追跡が消える`() {
         val c = counter()
         feed(c, listOf(0.5 to 0.38), listOf(0.5 to 0.46), listOf(0.5 to 0.54))

@@ -82,6 +82,15 @@ class LineCrossingCounter(
         else -> 0
     }
 
+    /**
+     * 追跡だけを破棄し、累積カウントは保持する。
+     * 検出設定（反転など）が変わると検出対象が入れ替わるため、変更前の追跡を
+     * 変更後の別物へ対応付けて幻の横切りを数えないよう、設定変更時に呼ぶ。
+     */
+    fun clearTracks() {
+        tracks.clear()
+    }
+
     fun reset() {
         tracks.clear()
         downCount = 0
