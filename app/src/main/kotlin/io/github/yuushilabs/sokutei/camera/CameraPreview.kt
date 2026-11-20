@@ -2,9 +2,12 @@ package io.github.yuushilabs.sokutei.camera
 
 import android.content.Context
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
@@ -17,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +29,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.io.File
+import java.util.concurrent.Executors
+import kotlin.math.ceil
+import kotlin.math.max
 
 /**
  * CameraX 初期化の共通処理。
@@ -88,6 +95,102 @@ fun CameraPreview(modifier: Modifier = Modifier) {
             }.onFailure { error = "カメラを開始できませんでした" }
         }
         onDispose { }
+    }
+    Box(modifier = modifier) {
+        AndroidView(factory = { previewView }, modifier = Modifier.matchParentSize())
+        error?.let { CameraErrorRetry(it, { error = null; attempt++ }, Modifier.matchParentSize()) }
+    }
+}
+
+/**
+ * フレームの輝度（Y平面）を最大幅 [MAX_ANALYSIS_WIDTH] に間引いて取り出す。
+ * 切り出し範囲は [ImageProxy.getCropRect] に従う。ViewPort を共有している場合は
+ * 表示範囲と一致し、表示されていない領域の物は数えない。
+ */
+private fun extractGray(image: ImageProxy): Triple<IntArray, Int, Int> {
+    val plane = image.planes[0]
+    val rowStride = plane.rowStride
+    val pixelStride = plane.pixelStride
+    val crop = image.cropRect
+    val srcX = crop.left.coerceIn(0, image.width - 1)
+    val srcY = crop.top.coerceIn(0, image.height - 1)
+    val srcW = crop.width().coerceIn(1, image.width - srcX)
+    val srcH = crop.height().coerceIn(1, image.height - srcY)
+    val step = max(1, ceil(srcW.toDouble() / MAX_ANALYSIS_WIDTH).toInt())
+    val outW = (srcW + step - 1) / step
+    val outH = (srcH + step - 1) / step
+    val bytes = ByteArray(plane.buffer.remaining())
+    plane.buffer.get(bytes)
+    val out = IntArray(outW * outH)
+    for (oy in 0 until outH) {
+        val sy = srcY + oy * step
+        for (ox in 0 until outW) {
+            val sx = srcX + ox * step
+            out[oy * outW + ox] = bytes[sy * rowStride + sx * pixelStride].toInt() and 0xFF
+        }
+    }
+    return Triple(out, outW, outH)
+}
+
+private const val MAX_ANALYSIS_WIDTH = 320
+
+/**
+ * 解析付きプレビュー。フレームの輝度と寸法、表示に合わせて正立させるための
+ * 回転角を [onFrame] へ渡す（解析専用スレッドで呼ばれる）。
+ * プレビューはフィット表示にし、呼び出し側が重心マーカーを正確に重ねられるようにする。
+ */
+@Composable
+fun CameraAnalysisPreview(
+    modifier: Modifier = Modifier,
+    onFrame: (gray: IntArray, width: Int, height: Int, rotationDegrees: Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val previewView = remember {
+        PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER }
+    }
+    var attempt by remember { mutableIntStateOf(0) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val provider = rememberCameraProvider(attempt) { error = it }
+    val frameHandler by rememberUpdatedState(onFrame)
+    DisposableEffect(provider, lifecycleOwner) {
+        val executor = Executors.newSingleThreadExecutor()
+        if (provider != null) {
+            runCatching {
+                val preview = Preview.Builder().build().also {
+                    it.surfaceProvider = previewView.surfaceProvider
+                }
+                val analysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                analysis.setAnalyzer(executor) { image ->
+                    image.use {
+                        val (gray, w, h) = extractGray(it)
+                        frameHandler(gray, w, h, it.imageInfo.rotationDegrees)
+                    }
+                }
+                provider.unbindAll()
+                // プレビューと解析で ViewPort を共有し、画角（切り出し範囲）を一致させる。
+                // 共有しないと両者の解像度選択次第で画角がずれ、表示範囲の外の物を
+                // 数えたり、マーカー位置がずれたりする
+                val viewPort = previewView.viewPort
+                if (viewPort != null) {
+                    val group = UseCaseGroup.Builder()
+                        .addUseCase(preview)
+                        .addUseCase(analysis)
+                        .setViewPort(viewPort)
+                        .build()
+                    provider.bindToLifecycle(
+                        lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group,
+                    )
+                } else {
+                    provider.bindToLifecycle(
+                        lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis,
+                    )
+                }
+            }.onFailure { error = "カメラを開始できませんでした" }
+        }
+        onDispose { executor.shutdown() }
     }
     Box(modifier = modifier) {
         AndroidView(factory = { previewView }, modifier = Modifier.matchParentSize())

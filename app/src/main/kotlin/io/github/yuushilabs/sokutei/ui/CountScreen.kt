@@ -27,16 +27,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import io.github.yuushilabs.sokutei.core.BlobCounter
-import io.github.yuushilabs.sokutei.core.Otsu
+import io.github.yuushilabs.sokutei.core.FrameCounter
 import io.github.yuushilabs.sokutei.data.HistoryViewModel
 import io.github.yuushilabs.sokutei.image.ImageOps
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 個数測定。
- * 自動: 縮小→グレースケール→大津二値化→連結成分ラベリング（core 実装）。
+ * 写真で数える。
+ * 自動: 縮小→グレースケール→大津二値化→連結成分ラベリング（core の FrameCounter）。
  * 手動: タップした点を数える。
  */
 @Composable
@@ -66,14 +65,12 @@ fun CountScreen(history: HistoryViewModel) {
         val result = withContext(Dispatchers.Default) {
             val small = ImageOps.downscale(source, 640)
             val gray = ImageOps.toGrayscale(small)
-            val threshold = Otsu.threshold(gray)
-            val mask = Otsu.binarize(gray, threshold, invert)
-            val total = small.width * small.height
-            val minArea = (total * minAreaPercent / 100.0).toInt().coerceAtLeast(2)
-            val blobs = BlobCounter.findBlobs(
-                mask, small.width, small.height,
-                minArea = minArea,
-                maxArea = total / 4,
+            val blobs = FrameCounter.findObjects(
+                gray, small.width, small.height,
+                FrameCounter.Options(
+                    invert = invert,
+                    minAreaFraction = minAreaPercent / 100.0,
+                ),
             )
             blobs.map { blob ->
                 (blob.centroidX / small.width).toFloat() to (blob.centroidY / small.height).toFloat()
@@ -90,7 +87,7 @@ fun CountScreen(history: HistoryViewModel) {
         Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("個数を数える", style = MaterialTheme.typography.headlineSmall)
+        Text("写真で数える", style = MaterialTheme.typography.headlineSmall)
         ImagePickerSection { loaded ->
             bitmap = loaded
             manualPoints = emptyList()
@@ -160,7 +157,7 @@ fun CountScreen(history: HistoryViewModel) {
                 enabled = manualMode || autoResultValid,
                 onClick = {
                     history.add(
-                        if (manualMode) "個数（手動）" else "個数（自動）",
+                        if (manualMode) "個数（写真・タップ）" else "個数（写真・自動）",
                         "$count 個",
                         if (manualMode) "タップカウント" else "大津二値化＋連結成分",
                     )

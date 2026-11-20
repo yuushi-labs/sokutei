@@ -13,10 +13,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.yuushilabs.sokutei.data.HistoryViewModel
 import io.github.yuushilabs.sokutei.ui.CountScreen
+import io.github.yuushilabs.sokutei.ui.CrossingCountScreen
 import io.github.yuushilabs.sokutei.ui.HomeScreen
-import io.github.yuushilabs.sokutei.ui.PhotoMeasureScreen
-import io.github.yuushilabs.sokutei.ui.ScanScreen
+import io.github.yuushilabs.sokutei.ui.LiveCountScreen
 import io.github.yuushilabs.sokutei.ui.SokuteiTheme
+import io.github.yuushilabs.sokutei.ui.TallyScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,14 +42,16 @@ fun SokuteiApp(history: HistoryViewModel = viewModel()) {
             composable("home") {
                 HomeScreen(
                     history = history,
-                    onOpenScan = { navController.navigate("scan") },
+                    onOpenLive = { navController.navigate("live") },
                     onOpenPhoto = { navController.navigate("photo") },
-                    onOpenCount = { navController.navigate("count") },
+                    onOpenCrossing = { navController.navigate("crossing") },
+                    onOpenTally = { navController.navigate("tally") },
                 )
             }
-            composable("scan") { ScanScreen(history = history) }
-            composable("photo") { PhotoMeasureScreen(history = history) }
-            composable("count") { CountScreen(history = history) }
+            composable("live") { LiveCountScreen(history = history) }
+            composable("photo") { CountScreen(history = history) }
+            composable("crossing") { CrossingCountScreen(history = history) }
+            composable("tally") { TallyScreen(history = history) }
         }
     }
 }
