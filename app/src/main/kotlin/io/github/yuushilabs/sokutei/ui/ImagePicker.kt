@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,6 +40,9 @@ fun ImagePickerSection(onBitmap: (Bitmap) -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     val controller = remember { CaptureController() }
     val scope = rememberCoroutineScope()
+    // 読み込み要求の世代。非同期読み込みが完了順序と無関係に終わっても、
+    // 最後に要求した画像だけが画面へ反映されるようにする
+    var loadGeneration by remember { mutableIntStateOf(0) }
 
     // Activity Result のコールバックはメインスレッドで呼ばれるため、
     // デコードは IO スレッドへ逃がしてから状態を更新する
@@ -46,8 +50,10 @@ fun ImagePickerSection(onBitmap: (Bitmap) -> Unit) {
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
         if (uri != null) {
+            val generation = ++loadGeneration
             scope.launch {
                 val bmp = withContext(Dispatchers.IO) { ImageOps.loadBitmap(context, uri) }
+                if (generation != loadGeneration) return@launch // 後発の要求に負けた
                 if (bmp != null) {
                     error = null
                     onBitmap(bmp)
@@ -79,10 +85,12 @@ fun ImagePickerSection(onBitmap: (Bitmap) -> Unit) {
                             controller.capture(
                                 context,
                                 onSaved = { file ->
+                                    val generation = ++loadGeneration
                                     scope.launch {
                                         val bmp = withContext(Dispatchers.IO) {
                                             ImageOps.loadBitmap(file)
                                         }
+                                        if (generation != loadGeneration) return@launch
                                         if (bmp != null) {
                                             error = null
                                             showCamera = false

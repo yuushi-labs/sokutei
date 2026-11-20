@@ -72,6 +72,7 @@ fun PhotoMeasureScreen(history: HistoryViewModel) {
             measurePoints = emptyList()
             scale = null
             refError = null
+            showScaleDialog = false
         }
 
         if (bmp != null) {
@@ -148,6 +149,11 @@ fun PhotoMeasureScreen(history: HistoryViewModel) {
                 refPoints = emptyList() // やり直し
             },
             onConfirm = { realMm ->
+                // 画像の差し替えなどで基準点が消えている場合は確定しない
+                if (refPoints.size != 2) {
+                    showScaleDialog = false
+                    return@ScaleInputDialog
+                }
                 val a = refPoints[0].toPx(bmp)
                 val b = refPoints[1].toPx(bmp)
                 // 同じ位置を2回タップすると距離 0 になり PixelScale が作れないため、

@@ -58,6 +58,7 @@ fun CountScreen(history: HistoryViewModel) {
         val source = bmp
         if (source == null || manualMode) {
             autoCentroids = emptyList()
+            autoResultValid = false
             computing = false
             return@LaunchedEffect
         }
@@ -99,8 +100,16 @@ fun CountScreen(history: HistoryViewModel) {
 
         if (bmp != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !manualMode, onClick = { manualMode = false }, label = { Text("自動で数える") })
-                FilterChip(selected = manualMode, onClick = { manualMode = true }, label = { Text("タップで数える") })
+                FilterChip(
+                    selected = !manualMode,
+                    onClick = { manualMode = false; autoResultValid = false },
+                    label = { Text("自動で数える") },
+                )
+                FilterChip(
+                    selected = manualMode,
+                    onClick = { manualMode = true; autoResultValid = false },
+                    label = { Text("タップで数える") },
+                )
             }
 
             FitImageCanvas(
