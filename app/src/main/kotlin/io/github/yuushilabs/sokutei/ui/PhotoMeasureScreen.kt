@@ -47,6 +47,7 @@ fun PhotoMeasureScreen(history: HistoryViewModel) {
     var measurePoints by remember { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
     var scale by remember { mutableStateOf<PixelScale?>(null) }
     var showScaleDialog by remember { mutableStateOf(false) }
+    var refError by remember { mutableStateOf<String?>(null) }
 
     val bmp = bitmap
     val lengthMm = remember(scale, measurePoints, bmp) {
@@ -70,6 +71,7 @@ fun PhotoMeasureScreen(history: HistoryViewModel) {
             refPoints = emptyList()
             measurePoints = emptyList()
             scale = null
+            refError = null
         }
 
         if (bmp != null) {
@@ -83,12 +85,14 @@ fun PhotoMeasureScreen(history: HistoryViewModel) {
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
+            refError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             FitImageCanvas(
                 bitmap = bmp,
                 modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                 onTapRelative = { rx, ry ->
                     when (phase) {
                         Phase.REFERENCE -> {
+                            refError = null
                             refPoints = refPoints + (rx to ry)
                             if (refPoints.size == 2) showScaleDialog = true
                         }
@@ -119,6 +123,7 @@ fun PhotoMeasureScreen(history: HistoryViewModel) {
                     refPoints = emptyList()
                     measurePoints = emptyList()
                     scale = null
+                    refError = null
                 }) { Text("基準からやり直し") }
                 if (measurePoints.isNotEmpty()) {
                     OutlinedButton(onClick = { measurePoints = emptyList() }) { Text("測定点をクリア") }
@@ -145,6 +150,15 @@ fun PhotoMeasureScreen(history: HistoryViewModel) {
             onConfirm = { realMm ->
                 val a = refPoints[0].toPx(bmp)
                 val b = refPoints[1].toPx(bmp)
+                // 同じ位置を2回タップすると距離 0 になり PixelScale が作れないため、
+                // ここで弾いて基準点の指定からやり直させる
+                val distancePx = kotlin.math.hypot(b.x - a.x, b.y - a.y)
+                if (distancePx <= 0.0) {
+                    refError = "基準の2点が重なっています。離れた2点をタップしてください"
+                    refPoints = emptyList()
+                    showScaleDialog = false
+                    return@ScaleInputDialog
+                }
                 scale = PixelScale.fromReference(a, b, realMm)
                 phase = Phase.MEASURE
                 showScaleDialog = false
@@ -159,6 +173,7 @@ private fun Pair<Float, Float>.toPx(bitmap: Bitmap): PxPoint =
 @Composable
 private fun ScaleInputDialog(onDismiss: () -> Unit, onConfirm: (Double) -> Unit) {
     var customText by remember { mutableStateOf("") }
+    var inputError by remember { mutableStateOf<String?>(null) }
     val presets = listOf(
         "クレジットカード長辺" to ReferenceObjects.CREDIT_CARD_MM,
         "1円玉" to ReferenceObjects.ONE_YEN_COIN_MM,
@@ -188,16 +203,27 @@ private fun ScaleInputDialog(onDismiss: () -> Unit, onConfirm: (Double) -> Unit)
                 }
                 OutlinedTextField(
                     value = customText,
-                    onValueChange = { customText = it },
+                    onValueChange = { customText = it; inputError = null },
                     label = { Text("カスタム (mm)") },
                     singleLine = true,
+                    isError = inputError != null,
                 )
+                inputError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                val value = customText.toDoubleOrNull() ?: selected
-                if (value > 0) onConfirm(value)
+                if (customText.isBlank()) {
+                    onConfirm(selected)
+                } else {
+                    // 入力があるのに解釈できない場合、プリセット値で黙って確定しない
+                    val value = customText.toDoubleOrNull()
+                    if (value != null && value.isFinite() && value > 0) {
+                        onConfirm(value)
+                    } else {
+                        inputError = "数値（mm）を入力してください。例: 85.6"
+                    }
+                }
             }) { Text("決定") }
         },
         dismissButton = {
