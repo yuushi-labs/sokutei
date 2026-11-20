@@ -53,11 +53,18 @@ fun CameraPermissionGate(content: @Composable () -> Unit) {
                 PackageManager.PERMISSION_GRANTED,
         )
     }
-    var requested by remember { mutableStateOf(false) }
+    // 要求履歴は画面の再生成後も保持する（永続拒否の判定に使うため、永続化する）
+    val prefs = remember {
+        context.getSharedPreferences("sokutei_prefs", android.content.Context.MODE_PRIVATE)
+    }
+    var requested by remember {
+        mutableStateOf(prefs.getBoolean("camera_permission_requested", false))
+    }
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
         requested = true
+        prefs.edit().putBoolean("camera_permission_requested", true).apply()
         granted = it
     }
 

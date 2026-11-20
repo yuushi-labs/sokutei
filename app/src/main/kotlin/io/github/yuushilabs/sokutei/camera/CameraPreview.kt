@@ -133,11 +133,13 @@ fun CameraCapturePreview(controller: CaptureController, modifier: Modifier = Mod
                     it.surfaceProvider = previewView.surfaceProvider
                 }
                 val capture = ImageCapture.Builder().build()
-                controller.imageCapture = capture
                 provider.unbindAll()
                 provider.bindToLifecycle(
                     lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture,
                 )
+                // バインドが成功した場合だけ撮影可能にする（失敗時に未準備の
+                // ImageCapture が残ってシャッターで誤動作しないように）
+                controller.imageCapture = capture
             }.onFailure { error = "カメラを開始できませんでした" }
         }
         onDispose {

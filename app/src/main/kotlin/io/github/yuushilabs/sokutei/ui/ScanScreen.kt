@@ -43,10 +43,6 @@ fun ScanScreen(history: HistoryViewModel) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val tracker = remember { MotionTracker(context) }
-    DisposableEffect(tracker) {
-        tracker.startListening()
-        onDispose { tracker.stopListening() }
-    }
 
     // 測定状態はタブを切り替えても失われないよう、この画面で保持する
     var moveMeasuring by remember { mutableStateOf(false) }
@@ -62,16 +58,25 @@ fun ScanScreen(history: HistoryViewModel) {
         }
     }
 
-    // バックグラウンドではセンサーイベントが欠落し、欠落時間をまたいだ積分は
-    // 不正な結果になるため、停止時に進行中の測定は破棄する
+    // センサー登録はライフサイクルに連動させる。バックグラウンドではセンサー
+    // イベントが欠落し、欠落時間をまたいだ積分は不正な結果になるため、停止時に
+    // 登録を解除し、進行中の測定も破棄する
     DisposableEffect(lifecycleOwner, tracker) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                cancelMoveMeasurement("バックグラウンドに移ったため、測定を中止しました")
+            when (event) {
+                Lifecycle.Event.ON_START -> tracker.startListening()
+                Lifecycle.Event.ON_STOP -> {
+                    cancelMoveMeasurement("バックグラウンドに移ったため、測定を中止しました")
+                    tracker.stopListening()
+                }
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            tracker.stopListening()
+        }
     }
 
     var tab by remember { mutableStateOf(0) }
