@@ -7,6 +7,7 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
@@ -101,13 +102,20 @@ fun CameraPreview(modifier: Modifier = Modifier) {
     }
 }
 
-/** フレームの輝度（Y平面）を最大幅 [MAX_ANALYSIS_WIDTH] に間引いて取り出す。 */
+/**
+ * フレームの輝度（Y平面）を最大幅 [MAX_ANALYSIS_WIDTH] に間引いて取り出す。
+ * 切り出し範囲は [ImageProxy.getCropRect] に従う。ViewPort を共有している場合は
+ * 表示範囲と一致し、表示されていない領域の物は数えない。
+ */
 private fun extractGray(image: ImageProxy): Triple<IntArray, Int, Int> {
     val plane = image.planes[0]
     val rowStride = plane.rowStride
     val pixelStride = plane.pixelStride
-    val srcW = image.width
-    val srcH = image.height
+    val crop = image.cropRect
+    val srcX = crop.left.coerceIn(0, image.width - 1)
+    val srcY = crop.top.coerceIn(0, image.height - 1)
+    val srcW = crop.width().coerceIn(1, image.width - srcX)
+    val srcH = crop.height().coerceIn(1, image.height - srcY)
     val step = max(1, ceil(srcW.toDouble() / MAX_ANALYSIS_WIDTH).toInt())
     val outW = (srcW + step - 1) / step
     val outH = (srcH + step - 1) / step
@@ -115,9 +123,9 @@ private fun extractGray(image: ImageProxy): Triple<IntArray, Int, Int> {
     plane.buffer.get(bytes)
     val out = IntArray(outW * outH)
     for (oy in 0 until outH) {
-        val sy = oy * step
+        val sy = srcY + oy * step
         for (ox in 0 until outW) {
-            val sx = ox * step
+            val sx = srcX + ox * step
             out[oy * outW + ox] = bytes[sy * rowStride + sx * pixelStride].toInt() and 0xFF
         }
     }
@@ -162,9 +170,24 @@ fun CameraAnalysisPreview(
                     }
                 }
                 provider.unbindAll()
-                provider.bindToLifecycle(
-                    lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis,
-                )
+                // プレビューと解析で ViewPort を共有し、画角（切り出し範囲）を一致させる。
+                // 共有しないと両者の解像度選択次第で画角がずれ、表示範囲の外の物を
+                // 数えたり、マーカー位置がずれたりする
+                val viewPort = previewView.viewPort
+                if (viewPort != null) {
+                    val group = UseCaseGroup.Builder()
+                        .addUseCase(preview)
+                        .addUseCase(analysis)
+                        .setViewPort(viewPort)
+                        .build()
+                    provider.bindToLifecycle(
+                        lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group,
+                    )
+                } else {
+                    provider.bindToLifecycle(
+                        lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis,
+                    )
+                }
             }.onFailure { error = "カメラを開始できませんでした" }
         }
         onDispose { executor.shutdown() }
