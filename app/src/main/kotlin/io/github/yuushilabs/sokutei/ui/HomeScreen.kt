@@ -24,9 +24,10 @@ import java.util.Date
 @Composable
 fun HomeScreen(
     history: HistoryViewModel,
-    onOpenScan: () -> Unit,
+    onOpenLive: () -> Unit,
     onOpenPhoto: () -> Unit,
-    onOpenCount: () -> Unit,
+    onOpenCrossing: () -> Unit,
+    onOpenTally: () -> Unit,
 ) {
     val records by history.records.collectAsState()
     LazyColumn(
@@ -35,39 +36,46 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("なんでも測定", style = MaterialTheme.typography.headlineMedium)
+            Text("かぞえる", style = MaterialTheme.typography.headlineMedium)
             Text(
-                "カメラとセンサで、長さ・高さ・個数を測ります。精度の限界は各画面と README に正直に書いてあります。",
+                "個数を数えるためのアプリです。自動で数える仕組みは背景とコントラストがはっきりした物が前提で、限界は各画面と README に正直に書いてあります。",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
             )
         }
         item {
             ModeCard(
-                title = "📏 上下スキャンで測る",
-                description = "スマホを物の下端に近づけて、そのまま上端まで持ち上げると高さが出ます。傾けて測る三角測量モード付き。",
-                onClick = onOpenScan,
+                title = "🎥 ライブで数える",
+                description = "カメラをかざすだけで、写っている物をその場で自動で数えます。撮らなくて大丈夫です。",
+                onClick = onOpenLive,
             )
         }
         item {
             ModeCard(
-                title = "🖼️ 静止画で測る",
-                description = "写真の中で基準物（クレジットカード等）と測りたい物をタップすると、実寸に換算します。",
+                title = "🖼️ 写真で数える",
+                description = "写真の中の物を自動で数えます（大津二値化＋連結成分）。タップで数えることもできます。",
                 onClick = onOpenPhoto,
             )
         }
         item {
             ModeCard(
-                title = "🔢 個数を数える",
-                description = "写真の中の物を自動で数えます（大津二値化＋連結成分）。手動タップ数えもできます。",
-                onClick = onOpenCount,
+                title = "🚶 通過カウント",
+                description = "画面中央の線を横切った物の数を、方向別に数えます。カメラを固定して使います。",
+                onClick = onOpenCrossing,
+            )
+        }
+        item {
+            ModeCard(
+                title = "🔢 手動カウンター",
+                description = "ボタンを押して数えるだけのシンプルなカウンター。カメラは使いません。",
+                onClick = onOpenTally,
             )
         }
         if (records.isNotEmpty()) {
             item {
                 Column {
                     Text(
-                        "測定履歴",
+                        "履歴",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = 8.dp),
                     )
