@@ -3,6 +3,8 @@ package io.github.yuushilabs.sokutei.image
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import java.io.File
 import kotlin.math.max
@@ -36,28 +38,68 @@ fun computeFitRect(containerW: Float, containerH: Float, imageW: Int, imageH: In
 
 object ImageOps {
 
-    /** Uri から最大辺 maxDim 以下に縮小して読み込む。 */
-    fun loadBitmap(context: Context, uri: Uri, maxDim: Int = 2048): Bitmap? {
+    /**
+     * Uri から最大辺 maxDim 以下に縮小して読み込む。
+     * 選択後に元画像が消えている場合など、読み込みに失敗したら例外ではなく null を返す。
+     * EXIF の方向情報は適用してから返す（BitmapFactory は自動適用しない）。
+     */
+    fun loadBitmap(context: Context, uri: Uri, maxDim: Int = 2048): Bitmap? = runCatching {
+        val orientation = context.contentResolver.openInputStream(uri)?.use { stream ->
+            ExifInterface(stream).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        } ?: ExifInterface.ORIENTATION_NORMAL
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         val options = BitmapFactory.Options().apply {
             inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, maxDim)
         }
-        return context.contentResolver.openInputStream(uri)?.use {
+        val decoded = context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, options)
-        }
-    }
+        } ?: return null
+        applyOrientation(decoded, orientation)
+    }.getOrNull()
 
-    /** File から最大辺 maxDim 以下に縮小して読み込む。 */
-    fun loadBitmap(file: File, maxDim: Int = 2048): Bitmap? {
+    /** File から最大辺 maxDim 以下に縮小して読み込む。失敗時は null。EXIF の方向を適用する。 */
+    fun loadBitmap(file: File, maxDim: Int = 2048): Bitmap? = runCatching {
+        val orientation = ExifInterface(file.absolutePath).getAttributeInt(
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.ORIENTATION_NORMAL,
+        )
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         val options = BitmapFactory.Options().apply {
             inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, maxDim)
         }
-        return BitmapFactory.decodeFile(file.absolutePath, options)
+        val decoded = BitmapFactory.decodeFile(file.absolutePath, options) ?: return null
+        applyOrientation(decoded, orientation)
+    }.getOrNull()
+
+    /** EXIF の方向（回転・反転）をビットマップへ適用する。通常方向なら元のまま返す。 */
+    private fun applyOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.setRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.setRotate(-90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return bitmap
+        }
+        val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        if (rotated !== bitmap) bitmap.recycle()
+        return rotated
     }
 
     private fun sampleSize(w: Int, h: Int, maxDim: Int): Int {

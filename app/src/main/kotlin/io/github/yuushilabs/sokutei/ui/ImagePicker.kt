@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -26,6 +27,9 @@ import androidx.compose.ui.unit.dp
 import io.github.yuushilabs.sokutei.camera.CameraCapturePreview
 import io.github.yuushilabs.sokutei.camera.CaptureController
 import io.github.yuushilabs.sokutei.image.ImageOps
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** 「撮影する / ギャラリーから選ぶ」の共通 UI。読み込めたら onBitmap を呼ぶ。 */
 @Composable
@@ -34,17 +38,22 @@ fun ImagePickerSection(onBitmap: (Bitmap) -> Unit) {
     var showCamera by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val controller = remember { CaptureController() }
+    val scope = rememberCoroutineScope()
 
+    // Activity Result のコールバックはメインスレッドで呼ばれるため、
+    // デコードは IO スレッドへ逃がしてから状態を更新する
     val pickLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
         if (uri != null) {
-            val bmp = ImageOps.loadBitmap(context, uri)
-            if (bmp != null) {
-                error = null
-                onBitmap(bmp)
-            } else {
-                error = "画像を読み込めませんでした"
+            scope.launch {
+                val bmp = withContext(Dispatchers.IO) { ImageOps.loadBitmap(context, uri) }
+                if (bmp != null) {
+                    error = null
+                    onBitmap(bmp)
+                } else {
+                    error = "画像を読み込めませんでした"
+                }
             }
         }
     }
@@ -70,13 +79,17 @@ fun ImagePickerSection(onBitmap: (Bitmap) -> Unit) {
                             controller.capture(
                                 context,
                                 onSaved = { file ->
-                                    val bmp = ImageOps.loadBitmap(file)
-                                    if (bmp != null) {
-                                        error = null
-                                        showCamera = false
-                                        onBitmap(bmp)
-                                    } else {
-                                        error = "撮影画像を読み込めませんでした"
+                                    scope.launch {
+                                        val bmp = withContext(Dispatchers.IO) {
+                                            ImageOps.loadBitmap(file)
+                                        }
+                                        if (bmp != null) {
+                                            error = null
+                                            showCamera = false
+                                            onBitmap(bmp)
+                                        } else {
+                                            error = "撮影画像を読み込めませんでした"
+                                        }
                                     }
                                 },
                                 onError = { error = it },
