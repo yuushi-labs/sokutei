@@ -18,7 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,8 +28,10 @@ import io.github.yuushilabs.sokutei.data.HistoryViewModel
 /** 手動カウンター。ボタンを押して数えるだけの画面。カメラは使わない。 */
 @Composable
 fun TallyScreen(history: HistoryViewModel) {
-    var count by remember { mutableIntStateOf(0) }
-    var label by remember { mutableStateOf("") }
+    // 構成変更（ダークモード切替やフォントサイズ変更）やプロセス終了で
+    // Activity が再生成されても、数えた個数を失わないよう保存可能にする
+    var count by rememberSaveable { mutableIntStateOf(0) }
+    var label by rememberSaveable { mutableStateOf("") }
 
     Column(
         Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),

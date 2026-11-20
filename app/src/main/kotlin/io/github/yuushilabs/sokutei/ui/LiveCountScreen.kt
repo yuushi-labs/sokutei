@@ -4,9 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -57,11 +60,11 @@ private fun LiveCountContent(history: HistoryViewModel) {
     val minAreaState = rememberUpdatedState(minAreaPercent)
 
     Column(
-        Modifier.fillMaxSize().padding(16.dp),
+        Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("ライブで数える", style = MaterialTheme.typography.headlineSmall)
-        Box(Modifier.fillMaxWidth().weight(1f)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(4f / 3f)) {
             CameraAnalysisPreview(Modifier.fillMaxSize()) { gray, w, h, rotation ->
                 val rotated = GrayImage.rotateClockwise(gray, w, h, rotation)
                 val blobs = FrameCounter.findObjects(
