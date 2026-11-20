@@ -17,8 +17,15 @@ data class AccelSample(val tMillis: Long, val aVertical: Double)
  *
  * 静止の判定は加速度だけでは行わない。等速移動中は加速度がほぼ 0 になるため、
  * 加速度だけで判定すると移動の途中で区間が分断され、変位が消えてしまう。
- * そこで、前後を移動に挟まれた静止候補区間については、補正なしの積分速度が
- * 十分小さい場合にだけ静止として扱う（[DEFAULT_STILL_VELOCITY_THRESHOLD]）。
+ * そこで、前後を移動に挟まれた静止候補区間については、次のどちらかを満たす
+ * 場合にだけ静止として扱う。
+ *
+ * - 積分速度が「直近で確定した静止区間での速度誤差」と比べて十分小さい
+ *   （[DEFAULT_STILL_VELOCITY_THRESHOLD]）。速度の基準は確定した静止のたびに
+ *   更新するので、前の移動で残った速度誤差を次の判定に持ち込まない。
+ * - 区間が [DEFAULT_LONG_STILL_MS] 以上続いている。速度誤差が残っていても、
+ *   それだけ長く加速度ゼロが続けば静止とみなす（代償として、同じ長さ以上の
+ *   等速移動は静止と誤認しうる）。
  *
  * それでも絶対精度は出ない（目安は SPEC.md / README の精度に関する注意を参照）。
  */
@@ -26,6 +33,7 @@ class VerticalDisplacementEstimator(
     private val stillAccelThreshold: Double = DEFAULT_STILL_THRESHOLD,
     private val stillWindowMillis: Long = DEFAULT_STILL_WINDOW_MS,
     private val stillVelocityThreshold: Double = DEFAULT_STILL_VELOCITY_THRESHOLD,
+    private val longStillMillis: Long = DEFAULT_LONG_STILL_MS,
 ) {
     private val samples = mutableListOf<AccelSample>()
 
@@ -53,23 +61,28 @@ class VerticalDisplacementEstimator(
         return sawAny
     }
 
-    fun displacementMeters(): Double =
-        estimateDisplacement(samples, stillAccelThreshold, stillWindowMillis, stillVelocityThreshold)
+    fun displacementMeters(): Double = estimateDisplacement(
+        samples, stillAccelThreshold, stillWindowMillis, stillVelocityThreshold, longStillMillis,
+    )
 
     companion object {
         const val DEFAULT_STILL_THRESHOLD = 0.35 // m/s^2
         const val DEFAULT_STILL_WINDOW_MS = 250L
         const val DEFAULT_STILL_VELOCITY_THRESHOLD = 0.12 // m/s
+        const val DEFAULT_LONG_STILL_MS = 2000L
 
         fun estimateDisplacement(
             samples: List<AccelSample>,
             stillAccelThreshold: Double = DEFAULT_STILL_THRESHOLD,
             stillWindowMillis: Long = DEFAULT_STILL_WINDOW_MS,
             stillVelocityThreshold: Double = DEFAULT_STILL_VELOCITY_THRESHOLD,
+            longStillMillis: Long = DEFAULT_LONG_STILL_MS,
         ): Double {
             if (samples.size < 2) return 0.0
             val accelStill = stillFlags(samples, stillAccelThreshold, stillWindowMillis)
-            val still = applyVelocityVeto(samples, accelStill, stillVelocityThreshold)
+            val still = applyVelocityVeto(
+                samples, accelStill, stillVelocityThreshold, longStillMillis,
+            )
             var total = 0.0
             var i = 0
             while (i < samples.size) {
@@ -132,19 +145,27 @@ class VerticalDisplacementEstimator(
         /**
          * 等速移動の誤分割を防ぐための速度条件。
          *
-         * 前後を移動に挟まれた静止候補区間でも、積分速度が区間を通して
-         * [velocityThreshold] を上回っているなら、それは静止ではなく等速移動の
-         * 一部とみなして静止扱いを取り消す。先頭と末尾の静止区間は ZUPT の
-         * アンカーとして常に残す（利用者は静止した状態で開始・停止するため）。
+         * 前後を移動に挟まれた静止候補区間は、次のどちらかで静止として確定する。
+         * - 積分速度が、直近で確定した静止区間時点の速度誤差（基準）から
+         *   [velocityThreshold] 以内まで下がっている
+         * - 区間が [longStillMillis] 以上続いている
+         *
+         * 確定した静止区間では速度基準をその区間の積分速度へ更新する。これにより、
+         * 前の移動で残った速度誤差（例: 加速度バイアスで残る +0.4 m/s）を次の
+         * 静止判定に持ち込まない。どちらも満たさない区間は等速移動の一部とみなして
+         * 静止扱いを取り消す。先頭と末尾の静止区間は ZUPT のアンカーとして常に残す
+         * （利用者は静止した状態で開始・停止するため）。
          */
         private fun applyVelocityVeto(
             samples: List<AccelSample>,
             accelStill: BooleanArray,
             velocityThreshold: Double,
+            longStillMillis: Long,
         ): BooleanArray {
             val n = samples.size
             val still = accelStill.copyOf()
             val velocity = rawVelocities(samples)
+            var velocityBaseline = 0.0
             var i = 0
             while (i < n) {
                 if (!accelStill[i]) {
@@ -153,11 +174,18 @@ class VerticalDisplacementEstimator(
                 }
                 var end = i
                 while (end < n && accelStill[end]) end++
-                val interior = i > 0 && end < n
-                if (interior) {
-                    var minAbsV = Double.MAX_VALUE
-                    for (k in i until end) minAbsV = minOf(minAbsV, abs(velocity[k]))
-                    if (minAbsV > velocityThreshold) {
+                val isEdge = i == 0 || end == n
+                if (isEdge) {
+                    velocityBaseline = velocity[end - 1]
+                } else {
+                    var minAdjusted = Double.MAX_VALUE
+                    for (k in i until end) {
+                        minAdjusted = minOf(minAdjusted, abs(velocity[k] - velocityBaseline))
+                    }
+                    val durationMs = samples[end - 1].tMillis - samples[i].tMillis
+                    if (minAdjusted <= velocityThreshold || durationMs >= longStillMillis) {
+                        velocityBaseline = velocity[end - 1]
+                    } else {
                         for (k in i until end) still[k] = false
                     }
                 }

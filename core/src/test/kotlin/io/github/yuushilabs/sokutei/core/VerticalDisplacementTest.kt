@@ -51,6 +51,21 @@ class VerticalDisplacementTest {
     }
 
     @Test
+    fun `速度誤差が残っても長い静止を挟んだ 2 回の移動は合算される`() {
+        // 1回目の移動だけ加速度に +0.4 m/s^2 の誤差が乗り、静止中も未補正速度が
+        // 0.4 m/s 残るケース。中央の静止（5秒）を等速移動と誤判定して区間を
+        // つなげてしまうと、合計が約 3.2m に化ける。各 1m の移動として合算されること。
+        val samples = synthesize(
+            listOf(
+                0.5 to 0.0, 0.5 to 4.4, 0.5 to -3.6, 5.0 to 0.0,
+                0.5 to 4.0, 0.5 to -4.0, 0.5 to 0.0,
+            ),
+        )
+        val est = VerticalDisplacementEstimator.estimateDisplacement(samples)
+        assertEquals(2.0, est, 0.15, "estimated=$est")
+    }
+
+    @Test
     fun `下方向の移動は負になる`() {
         val samples = synthesize(
             listOf(0.5 to 0.0, 0.5 to -4.0, 0.5 to 4.0, 0.5 to 0.0),
