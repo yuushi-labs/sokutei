@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import io.github.yuushilabs.sokutei.image.computeFitRect
 
 /**
@@ -48,8 +49,9 @@ fun FrameOverlay(
         }
         for ((rx, ry) in centroids) {
             val c = Offset(fit.toDisplayX(rx), fit.toDisplayY(ry))
-            drawCircle(Color.Red, radius = 12f, center = c, style = Stroke(width = 3.5f))
-            drawCircle(Color.Red, radius = 2.5f, center = c)
+            // 半径は dp 基準にする（px 直書きだと高密度端末で豆粒になる）
+            drawCircle(Color.Red, radius = 12.dp.toPx(), center = c, style = Stroke(width = 1.5.dp.toPx()))
+            drawCircle(Color.Red, radius = 2.5.dp.toPx(), center = c)
         }
     }
 }

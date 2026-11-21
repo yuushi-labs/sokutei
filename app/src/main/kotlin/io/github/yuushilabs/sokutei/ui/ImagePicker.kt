@@ -88,7 +88,11 @@ fun ImagePickerSection(onBitmap: (Bitmap) -> Unit) {
                                     val generation = ++loadGeneration
                                     scope.launch {
                                         val bmp = withContext(Dispatchers.IO) {
-                                            ImageOps.loadBitmap(file)
+                                            val loaded = ImageOps.loadBitmap(file)
+                                            // 読み込めたらキャッシュの撮影ファイルは消す
+                                            // （cacheDir に写真を残し続けない）
+                                            file.delete()
+                                            loaded
                                         }
                                         if (generation != loadGeneration) return@launch
                                         if (bmp != null) {
