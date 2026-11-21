@@ -96,6 +96,31 @@ class LineCrossingCounterTest {
     }
 
     @Test
+    fun `速い物が 1 フレームで線を越えても数える`() {
+        // 1フレームで 0.16 移動（通常半径 0.10 を超える）。緩和マッチングで数える
+        val c = counter()
+        feed(c, listOf(0.5 to 0.40), listOf(0.5 to 0.56))
+        assertEquals(1, c.downCount)
+        assertEquals(0, c.upCount)
+    }
+
+    @Test
+    fun `1 フレーム検出落ちした後に線の向こうで再出現しても数える`() {
+        val c = counter()
+        feed(c, listOf(0.5 to 0.44), emptyList(), listOf(0.5 to 0.56))
+        assertEquals(1, c.downCount)
+        assertEquals(0, c.upCount)
+    }
+
+    @Test
+    fun `曖昧な 2 候補しかない場合は緩和マッチングしない`() {
+        // 追跡1つに対して等距離（0.20）の候補が2つ → どちらとも対応付けない
+        val c = counter()
+        feed(c, listOf(0.5 to 0.40), listOf(0.38 to 0.56, 0.62 to 0.56))
+        assertEquals(0, c.totalCount)
+    }
+
+    @Test
     fun `リセットで回数と追跡が消える`() {
         val c = counter()
         feed(c, listOf(0.5 to 0.38), listOf(0.5 to 0.46), listOf(0.5 to 0.54))

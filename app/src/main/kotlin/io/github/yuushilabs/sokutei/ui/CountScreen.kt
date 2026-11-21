@@ -45,6 +45,7 @@ fun CountScreen(history: HistoryViewModel) {
     var invert by remember { mutableStateOf(false) }
     var minAreaPercent by remember { mutableStateOf(0.05f) } // 画像全体に対する割合(%)
     var autoCentroids by remember { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
+    var oversizedExcluded by remember { mutableStateOf(0) }
     var manualPoints by remember { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
     var computing by remember { mutableStateOf(false) }
     // 自動計算の結果が「現在の画像と設定」に対応して確定済みかどうか。
@@ -62,21 +63,22 @@ fun CountScreen(history: HistoryViewModel) {
             return@LaunchedEffect
         }
         computing = true
-        val result = withContext(Dispatchers.Default) {
+        val (centroids, oversized) = withContext(Dispatchers.Default) {
             val small = ImageOps.downscale(source, 640)
             val gray = ImageOps.toGrayscale(small)
-            val blobs = FrameCounter.findObjects(
+            val result = FrameCounter.analyze(
                 gray, small.width, small.height,
                 FrameCounter.Options(
                     invert = invert,
                     minAreaFraction = minAreaPercent / 100.0,
                 ),
             )
-            blobs.map { blob ->
+            result.blobs.map { blob ->
                 (blob.centroidX / small.width).toFloat() to (blob.centroidY / small.height).toFloat()
-            }
+            } to result.oversizedExcluded
         }
-        autoCentroids = result
+        autoCentroids = centroids
+        oversizedExcluded = oversized
         autoResultValid = true
         computing = false
     }
@@ -121,8 +123,8 @@ fun CountScreen(history: HistoryViewModel) {
                 val points = if (manualMode) manualPoints else autoCentroids
                 points.forEach { (rx, ry) ->
                     val c = Offset(fit.toDisplayX(rx), fit.toDisplayY(ry))
-                    drawCircle(Color.Red, radius = 14f, center = c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f))
-                    drawCircle(Color.Red, radius = 3f, center = c)
+                    drawCircle(Color.Red, radius = 14.dp.toPx(), center = c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+                    drawCircle(Color.Red, radius = 3.dp.toPx(), center = c)
                 }
             }
 
@@ -142,6 +144,13 @@ fun CountScreen(history: HistoryViewModel) {
                     onValueChange = { minAreaPercent = it; autoResultValid = false },
                     valueRange = 0.01f..1.0f,
                 )
+                if (oversizedExcluded > 0) {
+                    Text(
+                        "※ 大きすぎて数えていない領域があります（画像の25%超）。写る大きさを調整してください。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Text(
                     "※ 背景とコントラストがはっきりしている写真ほど正確です。くっついた物は1個に数えます。",
                     style = MaterialTheme.typography.bodySmall,

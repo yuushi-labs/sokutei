@@ -20,9 +20,18 @@ object BlobCounter {
         minArea: Int = 1,
         maxArea: Int = Int.MAX_VALUE,
     ): List<Blob> {
+        require(minArea >= 1) { "minArea must be >= 1" }
+        return findAllBlobs(mask, width, height).filter { it.area in minArea..maxArea }
+    }
+
+    /** 面積で絞らず、すべての連結成分を返す。除外理由を数えたい呼び出し側向け。 */
+    fun findAllBlobs(
+        mask: BooleanArray,
+        width: Int,
+        height: Int,
+    ): List<Blob> {
         require(width > 0 && height > 0) { "width/height must be positive" }
         require(mask.size == width * height) { "mask size must equal width*height" }
-        require(minArea >= 1) { "minArea must be >= 1" }
 
         val visited = BooleanArray(mask.size)
         val blobs = mutableListOf<Blob>()
@@ -49,9 +58,7 @@ object BlobCounter {
                 if (y > 0) visit(mask, visited, stack, idx - width)
                 if (y < height - 1) visit(mask, visited, stack, idx + width)
             }
-            if (area in minArea..maxArea) {
-                blobs.add(Blob(area, sumX / area, sumY / area))
-            }
+            blobs.add(Blob(area, sumX / area, sumY / area))
         }
         return blobs
     }

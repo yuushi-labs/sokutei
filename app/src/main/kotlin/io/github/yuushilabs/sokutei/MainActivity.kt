@@ -12,6 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.yuushilabs.sokutei.data.HistoryViewModel
+import io.github.yuushilabs.sokutei.data.TallyViewModel
 import io.github.yuushilabs.sokutei.ui.CountScreen
 import io.github.yuushilabs.sokutei.ui.CrossingCountScreen
 import io.github.yuushilabs.sokutei.ui.HomeScreen
@@ -31,7 +32,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun SokuteiApp(history: HistoryViewModel = viewModel()) {
+fun SokuteiApp(
+    history: HistoryViewModel = viewModel(),
+    tally: TallyViewModel = viewModel(),
+) {
     val navController = rememberNavController()
     Scaffold { innerPadding ->
         NavHost(
@@ -51,7 +55,7 @@ fun SokuteiApp(history: HistoryViewModel = viewModel()) {
             composable("live") { LiveCountScreen(history = history) }
             composable("photo") { CountScreen(history = history) }
             composable("crossing") { CrossingCountScreen(history = history) }
-            composable("tally") { TallyScreen(history = history) }
+            composable("tally") { TallyScreen(history = history, tally = tally) }
         }
     }
 }

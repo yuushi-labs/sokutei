@@ -59,6 +59,38 @@ class FrameCounterTest {
     }
 
     @Test
+    fun `面積上限を超える物は数えず除外件数として返る`() {
+        // 100x100 に 60x60（面積36%）の物 → 上限25%を超える
+        val gray = grayWithRects(100, 100, 200, 30, intArrayOf(20, 20, 60, 60))
+        val result = FrameCounter.analyze(gray, 100, 100)
+        assertEquals(0, result.blobs.size)
+        assertEquals(1, result.oversizedExcluded)
+        assertEquals(0, result.undersizedExcluded)
+    }
+
+    @Test
+    fun `面積上限ちょうどの物は数える`() {
+        // 100x100 に 50x50（面積25%ちょうど）
+        val gray = grayWithRects(100, 100, 200, 30, intArrayOf(25, 25, 50, 50))
+        val result = FrameCounter.analyze(gray, 100, 100)
+        assertEquals(1, result.blobs.size)
+        assertEquals(0, result.oversizedExcluded)
+    }
+
+    @Test
+    fun `下限未満の成分は undersized として返る`() {
+        val gray = grayWithRects(
+            100, 100, 200, 30,
+            intArrayOf(10, 10, 20, 20), intArrayOf(70, 70, 3, 3),
+        )
+        val result = FrameCounter.analyze(
+            gray, 100, 100, FrameCounter.Options(minAreaFraction = 0.01),
+        )
+        assertEquals(1, result.blobs.size)
+        assertEquals(1, result.undersizedExcluded)
+    }
+
+    @Test
     fun `一様な画像は 0 個`() {
         val gray = IntArray(50 * 40) { 128 }
         assertEquals(0, FrameCounter.findObjects(gray, 50, 40).size)

@@ -13,7 +13,7 @@
 
 ## 規約
 
-- 測定ロジックは `core`（純粋 Kotlin/JVM）に置き、Android 依存を持ち込まない。
+- 数えるロジックは `core`（純粋 Kotlin/JVM）に置き、Android 依存を持ち込まない。
   ロジックを変えたら必ず `core` の単体テストで既知ケースを検証する
 - Kotlin の型は素直に。`!!` の乱用禁止
 - コミットは Conventional Commits（`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `ci:`）。1コミット1論点
