@@ -17,7 +17,6 @@ object Otsu {
             require(v in 0..255) { "gray values must be in 0..255" }
             hist[v]++
         }
-        val total = gray.size.toDouble()
         var sumAll = 0.0
         for (i in 0..255) sumAll += i * hist[i]
 
